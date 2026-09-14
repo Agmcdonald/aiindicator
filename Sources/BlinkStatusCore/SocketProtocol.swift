@@ -1,0 +1,70 @@
+import Foundation
+
+public enum EventAction: String, Codable, Sendable {
+    case update
+    case clear
+}
+
+public struct DaemonEvent: Codable, Sendable {
+    public let action: EventAction
+    public let sourceID: String
+    public let applicationID: String
+    public let state: ActivityState?
+    public let timestamp: Date
+    public let expiresAt: Date?
+
+    public init(
+        action: EventAction,
+        sourceID: String,
+        applicationID: String,
+        state: ActivityState?,
+        timestamp: Date,
+        expiresAt: Date?
+    ) {
+        self.action = action
+        self.sourceID = sourceID
+        self.applicationID = applicationID
+        self.state = state
+        self.timestamp = timestamp
+        self.expiresAt = expiresAt
+    }
+
+    public func encodedLine() throws -> Data {
+        try validate()
+        var data = try JSONEncoder().encode(self)
+        data.append(0x0A)
+        return data
+    }
+
+    public static func decodeLine(_ line: Data) throws -> DaemonEvent {
+        guard line.last == 0x0A else {
+            throw SocketProtocolError.missingNewline
+        }
+
+        let event = try JSONDecoder().decode(DaemonEvent.self, from: line.dropLast())
+        try event.validate()
+        return event
+    }
+
+    private func validate() throws {
+        guard !sourceID.isEmpty, !applicationID.isEmpty else {
+            throw SocketProtocolError.missingIdentity
+        }
+
+        switch action {
+        case .update where state == nil:
+            throw SocketProtocolError.missingState
+        case .clear where state != nil:
+            throw SocketProtocolError.unexpectedState
+        default:
+            break
+        }
+    }
+}
+
+public enum SocketProtocolError: Error, Sendable {
+    case missingNewline
+    case missingIdentity
+    case missingState
+    case unexpectedState
+}
