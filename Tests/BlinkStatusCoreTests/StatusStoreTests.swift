@@ -12,9 +12,15 @@ final class StatusStoreTests: XCTestCase {
 
     func testOpenApplicationWithoutTurnResolvesReady() async {
         let store = StatusStore()
-        await store.apply(event(sourceID: "editor", applicationID: "com.example.editor", state: .ready, timestamp: 0))
+        await store.apply(SourceEvent(
+            sourceID: "editor",
+            applicationID: "com.example.editor",
+            state: .working,
+            timestamp: date(0),
+            expiresAt: date(1)
+        ))
 
-        let snapshot = await store.snapshot(now: date(1))
+        let snapshot = await store.snapshot(now: date(2))
 
         XCTAssertEqual(snapshot, StatusSnapshot(applicationOpen: true, state: .ready))
     }
