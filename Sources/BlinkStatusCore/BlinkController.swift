@@ -1,0 +1,123 @@
+import Foundation
+
+public actor BlinkController {
+    public static let executable = "/opt/homebrew/bin/blink1-tool"
+
+    public private(set) var diagnostics = [String]()
+
+    private let runner: any CommandRunning
+    private var deviceID: Int?
+    private var lastRendered: LEDPair?
+
+    public init(runner: any CommandRunning = CommandRunner()) {
+        self.runner = runner
+    }
+
+    public func render(_ snapshot: StatusSnapshot) async {
+        let pair = LEDPair(snapshot: snapshot)
+        guard pair != lastRendered else { return }
+        guard let deviceID = await resolvedDeviceID() else { return }
+
+        for command in pair.commands(deviceID: deviceID) {
+            guard await runColorCommand(command) else {
+                self.deviceID = nil
+                return
+            }
+        }
+
+        lastRendered = pair
+    }
+
+    private func resolvedDeviceID() async -> Int? {
+        if let deviceID {
+            return deviceID
+        }
+
+        do {
+            let result = try await runner.run(executable: Self.executable, arguments: ["--list"])
+            guard result.exitCode == 0 else {
+                recordFailure()
+                return nil
+            }
+
+            guard let discoveredDeviceID = Self.deviceID(in: result.stdout) else {
+                return nil
+            }
+
+            deviceID = discoveredDeviceID
+            return discoveredDeviceID
+        } catch {
+            recordFailure()
+            return nil
+        }
+    }
+
+    private func runColorCommand(_ command: ColorCommand) async -> Bool {
+        do {
+            let result = try await runner.run(executable: Self.executable, arguments: command.arguments)
+            guard result.exitCode == 0 else {
+                recordFailure()
+                return false
+            }
+            return true
+        } catch {
+            recordFailure()
+            return false
+        }
+    }
+
+    private func recordFailure() {
+        diagnostics.append("blink1-tool command failed")
+    }
+
+    private static func deviceID(in listOutput: String) -> Int? {
+        for line in listOutput.split(whereSeparator: \.isNewline) where line.contains("serialnum:2000A159") {
+            guard let idRange = line.range(of: "id:") else { continue }
+            let digits = line[idRange.upperBound...].prefix(while: \.isNumber)
+            if let id = Int(digits) {
+                return id
+            }
+        }
+        return nil
+    }
+}
+
+private struct LEDPair: Equatable {
+    let first: String
+    let second: String
+
+    init(snapshot: StatusSnapshot) {
+        guard snapshot.applicationOpen else {
+            first = "000000"
+            second = "000000"
+            return
+        }
+
+        first = "FFFFFF"
+        switch snapshot.state {
+        case .ready, nil:
+            second = "00FF00"
+        case .working:
+            second = "FFD000"
+        case .attention:
+            second = "FF0000"
+        }
+    }
+
+    func commands(deviceID: Int) -> [ColorCommand] {
+        [
+            ColorCommand(deviceID: deviceID, led: 1, color: first),
+            ColorCommand(deviceID: deviceID, led: 2, color: second),
+        ]
+    }
+}
+
+private struct ColorCommand {
+    let deviceID: Int
+    let led: Int
+    let color: String
+
+    var arguments: [String] {
+        ["--id", String(deviceID), "--led", String(led), "--rgb", color, "-m", "120"]
+    }
+}
