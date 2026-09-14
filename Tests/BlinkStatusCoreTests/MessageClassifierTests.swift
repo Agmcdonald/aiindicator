@@ -31,4 +31,8 @@ final class MessageClassifierTests: XCTestCase {
     func testWhitespaceAndCaseAreNormalized() {
         XCTAssertTrue(MessageClassifier.needsInput("  PLEASE ATTACH the missing image  "))
     }
+
+    func testCourtesyQuestionDoesNotNeedInput() {
+        XCTAssertFalse(MessageClassifier.needsInput("  LET ME KNOW if you want anything else?  "))
+    }
 }

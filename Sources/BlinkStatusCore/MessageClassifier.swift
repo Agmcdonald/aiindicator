@@ -11,12 +11,12 @@ public enum MessageClassifier {
             return false
         }
 
-        if normalized.hasSuffix("?") {
-            return true
-        }
-
         if normalized.contains("let me know") {
             return false
+        }
+
+        if normalized.hasSuffix("?") {
+            return true
         }
 
         return [
