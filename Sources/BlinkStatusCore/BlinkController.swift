@@ -8,13 +8,27 @@ public actor BlinkController {
     private let runner: any CommandRunning
     private var deviceID: Int?
     private var lastRendered: LEDPair?
+    private var isRendering = false
+    private var pendingSnapshot: StatusSnapshot?
 
     public init(runner: any CommandRunning = CommandRunner()) {
         self.runner = runner
     }
 
     public func render(_ snapshot: StatusSnapshot) async {
-        let pair = LEDPair(snapshot: snapshot)
+        pendingSnapshot = snapshot
+        guard !isRendering else { return }
+        isRendering = true
+
+        while let nextSnapshot = pendingSnapshot {
+            pendingSnapshot = nil
+            await renderTransaction(LEDPair(snapshot: nextSnapshot))
+        }
+
+        isRendering = false
+    }
+
+    private func renderTransaction(_ pair: LEDPair) async {
         guard pair != lastRendered else { return }
         guard let deviceID = await resolvedDeviceID() else { return }
 
@@ -71,7 +85,9 @@ public actor BlinkController {
     }
 
     private static func deviceID(in listOutput: String) -> Int? {
-        for line in listOutput.split(whereSeparator: \.isNewline) where line.contains("serialnum:2000A159") {
+        for line in listOutput.split(whereSeparator: \.isNewline) {
+            let fields = line.split(whereSeparator: { $0.isWhitespace || $0 == "-" || $0 == "(" || $0 == ")" })
+            guard fields.contains("serialnum:2000A159") else { continue }
             guard let idRange = line.range(of: "id:") else { continue }
             let digits = line[idRange.upperBound...].prefix(while: \.isNumber)
             if let id = Int(digits) {

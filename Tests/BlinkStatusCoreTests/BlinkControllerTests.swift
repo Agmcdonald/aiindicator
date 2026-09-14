@@ -68,6 +68,16 @@ final class BlinkControllerTests: XCTestCase {
         XCTAssertEqual(invocations, [CommandInvocation(arguments: ["--list"])])
     }
 
+    func testSerialWithTargetPrefixSendsNoColorCommands() async {
+        let runner = RecordingRunner(listOutput: "blink(1) list:\nid:1 - serialnum:2000A1590 (mk2) fw version:204")
+        let controller = BlinkController(runner: runner)
+
+        await controller.render(snapshot(for: .ready))
+
+        let invocations = await runner.invocations()
+        XCTAssertEqual(invocations, [CommandInvocation(arguments: ["--list"])])
+    }
+
     func testRenderingUnchangedSnapshotTwiceDoesNotRunAnyAdditionalCommands() async {
         let runner = RecordingRunner(listOutput: deviceList)
         let controller = BlinkController(runner: runner)
@@ -79,6 +89,33 @@ final class BlinkControllerTests: XCTestCase {
 
         let finalInvocations = await runner.invocations()
         XCTAssertEqual(finalInvocations, callsAfterFirstRender)
+    }
+
+    func testConcurrentIdenticalRendersDoNotDuplicateCommandsWhileRunnerIsSuspended() async {
+        let runner = SuspendingRunner(listOutput: deviceList)
+        let controller = BlinkController(runner: runner)
+        let snapshot = snapshot(for: .working)
+
+        let firstRender = Task { await controller.render(snapshot) }
+        await runner.waitUntilFirstListStarts()
+        let secondRender = Task { await controller.render(snapshot) }
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        let invocationsWhileSuspended = await runner.invocations()
+        XCTAssertEqual(invocationsWhileSuspended, [CommandInvocation(arguments: ["--list"])])
+
+        await runner.resumeFirstList()
+        await firstRender.value
+        await secondRender.value
+
+        let finalInvocations = await runner.invocations()
+        XCTAssertEqual(finalInvocations, [
+            CommandInvocation(arguments: ["--list"]),
+            CommandInvocation(arguments: ["--id", "0", "--led", "1", "--rgb", "FFFFFF", "-m", "120"]),
+            CommandInvocation(arguments: ["--id", "0", "--led", "2", "--rgb", "FFD000", "-m", "120"]),
+        ])
     }
 
     func testRunnerErrorIsSwallowedAndRecordedWithoutUnderlyingErrorText() async {
@@ -164,6 +201,55 @@ private actor RecordingRunner: CommandRunning {
         }
 
         return CommandResult(exitCode: 0, stdout: "", stderr: "")
+    }
+
+    func invocations() -> [CommandInvocation] {
+        recordedInvocations
+    }
+}
+
+private actor SuspendingRunner: CommandRunning {
+    private let listOutput: String
+    private var recordedInvocations = [CommandInvocation]()
+    private var listStarted = false
+    private var listStartWaiters = [CheckedContinuation<Void, Never>]()
+    private var firstListResume: CheckedContinuation<Void, Never>?
+
+    init(listOutput: String) {
+        self.listOutput = listOutput
+    }
+
+    func run(executable: String, arguments: [String]) async throws -> CommandResult {
+        recordedInvocations.append(CommandInvocation(executable: executable, arguments: arguments))
+
+        if arguments == ["--list"] {
+            if !listStarted {
+                listStarted = true
+                let waiters = listStartWaiters
+                listStartWaiters.removeAll()
+                for waiter in waiters {
+                    waiter.resume()
+                }
+                await withCheckedContinuation { continuation in
+                    firstListResume = continuation
+                }
+            }
+            return CommandResult(exitCode: 0, stdout: listOutput, stderr: "")
+        }
+
+        return CommandResult(exitCode: 0, stdout: "", stderr: "")
+    }
+
+    func waitUntilFirstListStarts() async {
+        guard !listStarted else { return }
+        await withCheckedContinuation { continuation in
+            listStartWaiters.append(continuation)
+        }
+    }
+
+    func resumeFirstList() {
+        firstListResume?.resume()
+        firstListResume = nil
     }
 
     func invocations() -> [CommandInvocation] {
