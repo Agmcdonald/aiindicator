@@ -31,7 +31,9 @@ public struct DaemonEvent: Codable, Sendable {
 
     public func encodedLine() throws -> Data {
         try validate()
-        var data = try JSONEncoder().encode(self)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        var data = try encoder.encode(self)
         data.append(0x0A)
         return data
     }
@@ -41,7 +43,9 @@ public struct DaemonEvent: Codable, Sendable {
             throw SocketProtocolError.missingNewline
         }
 
-        let event = try JSONDecoder().decode(DaemonEvent.self, from: line.dropLast())
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let event = try decoder.decode(DaemonEvent.self, from: line.dropLast())
         try event.validate()
         return event
     }

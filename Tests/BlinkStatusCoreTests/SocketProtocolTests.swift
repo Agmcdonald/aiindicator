@@ -47,4 +47,13 @@ final class SocketProtocolTests: XCTestCase {
 
         XCTAssertThrowsError(try DaemonEvent.decodeLine(line))
     }
+
+    func testDecodeUsesPythonStyleUnixEpochSeconds() throws {
+        let line = Data((#"{"action":"update","sourceID":"codex:session-123","applicationID":"com.openai.codex","state":1,"timestamp":1700000000,"expiresAt":1700007200}"# + "\n").utf8)
+
+        let event = try DaemonEvent.decodeLine(line)
+
+        XCTAssertEqual(event.timestamp, Date(timeIntervalSince1970: 1_700_000_000))
+        XCTAssertEqual(event.expiresAt, Date(timeIntervalSince1970: 1_700_007_200))
+    }
 }

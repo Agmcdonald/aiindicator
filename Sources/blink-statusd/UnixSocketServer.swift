@@ -6,6 +6,7 @@ final class UnixSocketServer: @unchecked Sendable {
     typealias EventHandler = @Sendable (DaemonEvent) async -> Void
 
     static let maximumMessageSize = 16 * 1024
+    static let receiveDeadlineNanoseconds: UInt64 = 200_000_000
 
     static var defaultSocketPath: String {
         "/tmp/blink-status-\(getuid())/events.sock"
@@ -158,8 +159,20 @@ final class UnixSocketServer: @unchecked Sendable {
     private static func readEvent(from fileDescriptor: Int32) -> DaemonEvent? {
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 1_024)
+        let deadline = DispatchTime.now().uptimeNanoseconds + receiveDeadlineNanoseconds
 
         while data.count < maximumMessageSize {
+            let now = DispatchTime.now().uptimeNanoseconds
+            guard now < deadline else {
+                return nil
+            }
+            let remainingMilliseconds = Int32(max(1, (deadline - now + 999_999) / 1_000_000))
+            var descriptor = pollfd(fd: fileDescriptor, events: Int16(POLLIN), revents: 0)
+            guard Darwin.poll(&descriptor, 1, remainingMilliseconds) > 0,
+                  descriptor.revents & Int16(POLLIN) != 0 else {
+                return nil
+            }
+
             let count = Darwin.recv(fileDescriptor, &buffer, buffer.count, 0)
             guard count > 0 else {
                 return nil

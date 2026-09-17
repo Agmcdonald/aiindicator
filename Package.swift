@@ -13,6 +13,6 @@ let package = Package(
     targets: [
         .target(name: "BlinkStatusCore"),
         .executableTarget(name: "blink-statusd", dependencies: ["BlinkStatusCore"]),
-        .testTarget(name: "BlinkStatusCoreTests", dependencies: ["BlinkStatusCore"]),
+        .testTarget(name: "BlinkStatusCoreTests", dependencies: ["BlinkStatusCore", "blink-statusd"]),
     ]
 )
