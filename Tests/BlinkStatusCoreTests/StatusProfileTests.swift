@@ -33,6 +33,27 @@ final class StatusProfileTests: XCTestCase {
         XCTAssertNil(StatusProfile.profile(for: "com.example.unknown"))
     }
 
+    func testNoncanonicalProfilesCannotBeConstructed() {
+        XCTAssertNil(StatusProfile(
+            id: .openai,
+            serialNumber: "2000A15D",
+            presenceColor: "FFFFFF",
+            applicationIDs: ["com.openai.codex", "com.openai.codex-cli"]
+        ))
+        XCTAssertNil(StatusProfile(
+            id: .claude,
+            serialNumber: "2000A15D",
+            presenceColor: "FFFFFF",
+            applicationIDs: ["com.anthropic.claudefordesktop", "com.anthropic.claude-code"]
+        ))
+        XCTAssertNil(StatusProfile(
+            id: .openai,
+            serialNumber: "ARBITRARY",
+            presenceColor: "FFFFFF",
+            applicationIDs: ["com.example.unknown"]
+        ))
+    }
+
     private func assertProfile(
         _ profile: StatusProfile?,
         id: StatusProfileID,

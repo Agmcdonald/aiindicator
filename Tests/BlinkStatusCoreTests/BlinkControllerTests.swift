@@ -188,6 +188,24 @@ final class BlinkControllerTests: XCTestCase {
         ])
     }
 
+    func testReconnectWithSwappedNumericIDsRefreshesExactProfileDeviceBeforeWrites() async {
+        let runner = RecordingRunner(listOutputs: [deviceList, swappedDeviceList])
+        let controller = BlinkController(profile: .openAI, runner: runner)
+
+        await controller.render(snapshot(for: .ready))
+        await controller.render(snapshot(for: .working))
+
+        let invocations = await runner.invocations()
+        XCTAssertEqual(invocations, [
+            CommandInvocation(arguments: ["--list"]),
+            CommandInvocation(arguments: ["--id", "0", "--led", "1", "--rgb", "FFFFFF", "-m", "120"]),
+            CommandInvocation(arguments: ["--id", "0", "--led", "2", "--rgb", "00FF00", "-m", "120"]),
+            CommandInvocation(arguments: ["--list"]),
+            CommandInvocation(arguments: ["--id", "1", "--led", "1", "--rgb", "FFFFFF", "-m", "120"]),
+            CommandInvocation(arguments: ["--id", "1", "--led", "2", "--rgb", "FFD000", "-m", "120"]),
+        ])
+    }
+
     private func snapshot(for state: ActivityState) -> StatusSnapshot {
         StatusSnapshot(applicationOpen: true, state: state)
     }
@@ -197,6 +215,12 @@ private let deviceList = """
 blink(1) list:
 id:0 - serialnum:2000A159 (mk2) fw version:204
 id:1 - serialnum:2000A15D (mk2) fw version:204
+"""
+
+private let swappedDeviceList = """
+blink(1) list:
+id:0 - serialnum:2000A15D (mk2) fw version:204
+id:1 - serialnum:2000A159 (mk2) fw version:204
 """
 
 private struct CommandInvocation: Equatable, Sendable {
@@ -212,15 +236,18 @@ private struct CommandInvocation: Equatable, Sendable {
 private actor RecordingRunner: CommandRunning {
     private let listOutput: String
     private let error: Error?
+    private var listOutputs: [String]
     private var plannedResults: [Result<CommandResult, Error>]
     private var recordedInvocations = [CommandInvocation]()
 
     init(
         listOutput: String = "",
+        listOutputs: [String] = [],
         error: Error? = nil,
         plannedResults: [Result<CommandResult, Error>] = []
     ) {
         self.listOutput = listOutput
+        self.listOutputs = listOutputs
         self.error = error
         self.plannedResults = plannedResults
     }
@@ -233,6 +260,9 @@ private actor RecordingRunner: CommandRunning {
         }
 
         if arguments == ["--list"] {
+            if !listOutputs.isEmpty {
+                return CommandResult(exitCode: 0, stdout: listOutputs.removeFirst(), stderr: "")
+            }
             return CommandResult(exitCode: 0, stdout: listOutput, stderr: "")
         }
 

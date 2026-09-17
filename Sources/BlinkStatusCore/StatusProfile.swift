@@ -11,18 +11,20 @@ public struct StatusProfile: Equatable, Sendable {
     public let presenceColor: String
     public let applicationIDs: Set<String>
 
-    public init(
+    public init?(
         id: StatusProfileID,
         serialNumber: String,
         presenceColor: String,
         applicationIDs: Set<String>
     ) {
-        precondition(!serialNumber.isEmpty, "A status profile requires a serial number")
-        precondition(
-            Self.isUppercaseRGB(presenceColor),
-            "A status profile presence color must be six uppercase RGB hex characters"
-        )
-        precondition(!applicationIDs.isEmpty, "A status profile requires at least one application ID")
+        guard Self.isCanonical(
+            id: id,
+            serialNumber: serialNumber,
+            presenceColor: presenceColor,
+            applicationIDs: applicationIDs
+        ) else {
+            return nil
+        }
 
         self.id = id
         self.serialNumber = serialNumber
@@ -35,14 +37,14 @@ public struct StatusProfile: Equatable, Sendable {
         serialNumber: "2000A159",
         presenceColor: "FFFFFF",
         applicationIDs: ["com.openai.codex", "com.openai.codex-cli"]
-    )
+    )!
 
     public static let claude = StatusProfile(
         id: .claude,
         serialNumber: "2000A15D",
         presenceColor: "FF8000",
         applicationIDs: ["com.anthropic.claudefordesktop", "com.anthropic.claude-code"]
-    )
+    )!
 
     public static let all = [openAI, claude]
 
@@ -50,9 +52,21 @@ public struct StatusProfile: Equatable, Sendable {
         all.first { $0.applicationIDs.contains(applicationID) }
     }
 
-    private static func isUppercaseRGB(_ value: String) -> Bool {
-        value.utf8.count == 6 && value.utf8.allSatisfy {
-            ($0 >= 48 && $0 <= 57) || ($0 >= 65 && $0 <= 70)
+    private static func isCanonical(
+        id: StatusProfileID,
+        serialNumber: String,
+        presenceColor: String,
+        applicationIDs: Set<String>
+    ) -> Bool {
+        switch id {
+        case .openai:
+            serialNumber == "2000A159" &&
+                presenceColor == "FFFFFF" &&
+                applicationIDs == ["com.openai.codex", "com.openai.codex-cli"]
+        case .claude:
+            serialNumber == "2000A15D" &&
+                presenceColor == "FF8000" &&
+                applicationIDs == ["com.anthropic.claudefordesktop", "com.anthropic.claude-code"]
         }
     }
 }

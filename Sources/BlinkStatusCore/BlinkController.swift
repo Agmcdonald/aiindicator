@@ -45,24 +45,26 @@ public actor BlinkController {
     }
 
     private func resolvedDeviceID() async -> Int? {
-        if let deviceID {
-            return deviceID
-        }
-
         do {
             let result = try await runner.run(executable: Self.executable, arguments: ["--list"])
             guard result.exitCode == 0 else {
+                deviceID = nil
                 recordFailure()
                 return nil
             }
 
             guard let discoveredDeviceID = Self.deviceID(in: result.stdout, serialNumber: profile.serialNumber) else {
+                deviceID = nil
                 return nil
             }
 
+            if let deviceID, deviceID == discoveredDeviceID {
+                return deviceID
+            }
             deviceID = discoveredDeviceID
             return discoveredDeviceID
         } catch {
+            deviceID = nil
             recordFailure()
             return nil
         }
