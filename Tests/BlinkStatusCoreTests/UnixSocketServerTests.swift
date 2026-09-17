@@ -70,7 +70,7 @@ final class UnixSocketServerTests: XCTestCase {
         let event = try await waitForEvent(from: recorder)
         XCTAssertEqual(event.action, .update)
         XCTAssertEqual(event.sourceID, "codex:session-123")
-        XCTAssertEqual(event.applicationID, "com.openai.codex")
+        XCTAssertEqual(event.applicationID, "com.openai.codex-cli")
         XCTAssertEqual(event.state, .attention)
         guard let expiresAt = event.expiresAt else {
             return XCTFail("PermissionRequest should have an expiry")

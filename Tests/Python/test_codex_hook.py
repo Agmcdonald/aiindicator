@@ -19,9 +19,9 @@ class CodexHookTests(unittest.TestCase):
             ("UserPromptSubmit", "", "update", 1, 2 * 60 * 60),
             ("PermissionRequest", "", "update", 2, 24 * 60 * 60),
             ("PostToolUse", "", "update", 1, 2 * 60 * 60),
-            ("Stop", "The requested work is complete.", "update", 0, None),
-            ("Stop", "Which option should I use?", "update", 2, None),
-            ("Interrupt", "", "update", 0, None),
+            ("Stop", "The requested work is complete.", "update", 0, 24 * 60 * 60),
+            ("Stop", "Which option should I use?", "update", 2, 24 * 60 * 60),
+            ("Interrupt", "", "update", 0, 24 * 60 * 60),
             ("SessionEnd", "", "clear", None, None),
         ]
 
@@ -35,12 +35,13 @@ class CodexHookTests(unittest.TestCase):
                 })
 
                 self.assertEqual("codex:session-123", received["sourceID"])
-                self.assertEqual("com.openai.codex", received["applicationID"])
+                self.assertEqual("com.openai.codex-cli", received["applicationID"])
                 self.assertEqual(action, received["action"])
                 self.assertEqual(state, received["state"])
                 if expiry_seconds is None:
                     self.assertIsNone(received["expiresAt"])
                 else:
+                    self.assertIsNotNone(received["expiresAt"])
                     self.assertAlmostEqual(
                         received["timestamp"] + expiry_seconds,
                         received["expiresAt"],

@@ -7,8 +7,15 @@ public actor StatusStore {
     public init() {}
 
     public func apply(_ event: SourceEvent) {
-        openApplications.insert(event.applicationID)
         activeSignals[event.sourceID] = event
+    }
+
+    public func setApplicationOpen(_ applicationID: String, open: Bool) {
+        if open {
+            openApplications.insert(applicationID)
+        } else {
+            clear(applicationID: applicationID)
+        }
     }
 
     public func clear(sourceID: String) {
@@ -30,7 +37,7 @@ public actor StatusStore {
     public func snapshot(now: Date) -> StatusSnapshot {
         expire(now: now)
 
-        guard !openApplications.isEmpty else {
+        guard !openApplications.isEmpty || !activeSignals.isEmpty else {
             return StatusSnapshot(applicationOpen: false, state: nil)
         }
 

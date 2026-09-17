@@ -206,6 +206,28 @@ final class BlinkControllerTests: XCTestCase {
         ])
     }
 
+    func testMaintenanceRepaintsUnchangedSnapshotOnceAfterObservedReconnect() async {
+        let runner = RecordingRunner(listOutput: deviceList, listOutputs: [deviceList, "blink(1) list:", deviceList])
+        let controller = BlinkController(profile: .openAI, runner: runner)
+        let desired = snapshot(for: .ready)
+        await controller.render(desired)
+        await controller.maintain(desired)
+        let absent = await runner.invocations().filter { $0.arguments.contains("--rgb") }
+        XCTAssertEqual(absent.count, 2)
+        await controller.maintain(desired)
+        let reconnected = await runner.invocations().filter { $0.arguments.contains("--rgb") }
+        XCTAssertEqual(reconnected, [
+            CommandInvocation(arguments: ["--id", "0", "--led", "1", "--rgb", "FFFFFF", "-m", "120"]),
+            CommandInvocation(arguments: ["--id", "0", "--led", "2", "--rgb", "00FF00", "-m", "120"]),
+            CommandInvocation(arguments: ["--id", "0", "--led", "1", "--rgb", "FFFFFF", "-m", "120"]),
+            CommandInvocation(arguments: ["--id", "0", "--led", "2", "--rgb", "00FF00", "-m", "120"]),
+        ])
+        await controller.maintain(desired)
+        await controller.render(desired)
+        let continuous = await runner.invocations().filter { $0.arguments.contains("--rgb") }
+        XCTAssertEqual(continuous, reconnected)
+    }
+
     private func snapshot(for state: ActivityState) -> StatusSnapshot {
         StatusSnapshot(applicationOpen: true, state: state)
     }

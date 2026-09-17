@@ -11,6 +11,7 @@ public actor BlinkController {
     private var lastRendered: LEDPair?
     private var isRendering = false
     private var pendingSnapshot: StatusSnapshot?
+    private var pendingProbe = false
 
     public init(profile: StatusProfile, runner: any CommandRunning = CommandRunner()) {
         self.profile = profile
@@ -18,12 +19,29 @@ public actor BlinkController {
     }
 
     public func render(_ snapshot: StatusSnapshot) async {
+        await enqueue(snapshot, probe: false)
+    }
+
+    /// Rechecks device presence without repainting a continuously present,
+    /// unchanged device. Observed absence invalidates the successful-render cache.
+    public func maintain(_ snapshot: StatusSnapshot) async {
+        await enqueue(snapshot, probe: true)
+    }
+
+    private func enqueue(_ snapshot: StatusSnapshot, probe: Bool) async {
         pendingSnapshot = snapshot
+        pendingProbe = pendingProbe || probe
         guard !isRendering else { return }
         isRendering = true
 
         while let nextSnapshot = pendingSnapshot {
             pendingSnapshot = nil
+            let shouldProbe = pendingProbe
+            pendingProbe = false
+            if shouldProbe, await resolvedDeviceID() == nil {
+                lastRendered = nil
+                continue
+            }
             await renderTransaction(LEDPair(snapshot: nextSnapshot, presenceColor: profile.presenceColor))
         }
 
@@ -61,6 +79,7 @@ public actor BlinkController {
             if let deviceID, deviceID == discoveredDeviceID {
                 return deviceID
             }
+            lastRendered = nil
             deviceID = discoveredDeviceID
             return discoveredDeviceID
         } catch {

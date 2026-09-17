@@ -8,10 +8,11 @@ import sys
 import time
 
 
-APPLICATION_ID = "com.openai.codex"
+APPLICATION_ID = "com.openai.codex-cli"
 SOCKET_TIMEOUT_SECONDS = 0.2
 WORKING_EXPIRY_SECONDS = 2 * 60 * 60
 ATTENTION_EXPIRY_SECONDS = 24 * 60 * 60
+READY_EXPIRY_SECONDS = 24 * 60 * 60
 
 
 def needs_input(message):
@@ -58,9 +59,11 @@ def event_for(payload):
     elif event_name == "PermissionRequest":
         event.update(action="update", state=2, expiresAt=timestamp + ATTENTION_EXPIRY_SECONDS)
     elif event_name == "Stop":
-        event.update(action="update", state=2 if needs_input(message) else 0)
+        attention = needs_input(message)
+        lease = ATTENTION_EXPIRY_SECONDS if attention else READY_EXPIRY_SECONDS
+        event.update(action="update", state=2 if attention else 0, expiresAt=timestamp + lease)
     elif event_name == "Interrupt":
-        event.update(action="update", state=0)
+        event.update(action="update", state=0, expiresAt=timestamp + READY_EXPIRY_SECONDS)
     elif event_name == "SessionEnd":
         event.update(action="clear", state=None)
     else:
