@@ -116,6 +116,67 @@ class PackagingTests(unittest.TestCase):
             self.module.uninstall_files(self.paths)
         self.assertTrue(self.paths.plist.exists())
 
+    def test_log_leaf_symlinks_and_nonregular_files_are_refused_before_mutation(self):
+        self.paths.logs.mkdir(parents=True)
+        target = self.home / "unrelated-file"
+        target.write_text("keep me")
+        for filename in ("stdout.log", "stderr.log"):
+            for kind in ("symlink", "directory", "fifo"):
+                with self.subTest(filename=filename, kind=kind):
+                    leaf = self.paths.logs / filename
+                    if kind == "symlink":
+                        leaf.symlink_to(target)
+                    elif kind == "directory":
+                        leaf.mkdir()
+                    else:
+                        os.mkfifo(leaf)
+                    try:
+                        for action in (lambda: self.module.preflight(self.paths), self.stage,
+                                       lambda: self.module.uninstall_files(self.paths)):
+                            with self.assertRaises(ValueError):
+                                action()
+                        self.assertFalse(self.paths.support.exists())
+                        self.assertFalse(self.paths.plist.exists())
+                        self.assertEqual(target.read_text(), "keep me")
+                    finally:
+                        if kind == "directory":
+                            leaf.rmdir()
+                        else:
+                            leaf.unlink()
+
+    def test_regular_existing_logs_are_preserved(self):
+        self.paths.logs.mkdir(parents=True)
+        for filename in ("stdout.log", "stderr.log"):
+            (self.paths.logs / filename).write_text("existing diagnostic")
+        self.module.preflight(self.paths)
+        self.stage()
+        for filename in ("stdout.log", "stderr.log"):
+            self.assertEqual((self.paths.logs / filename).read_text(), "existing diagnostic")
+
+    def test_conflicting_program_override_is_refused_before_mutation(self):
+        self.stage()
+        plist = plistlib.loads(self.paths.plist.read_bytes())
+        plist["Program"] = "/other/user-program"
+        original = plistlib.dumps(plist)
+        self.paths.plist.write_bytes(original)
+        binary = self.paths.support / "bin/blink-statusd"
+        before = binary.read_bytes()
+        for action in (lambda: self.module.preflight(self.paths), self.stage,
+                       lambda: self.module.uninstall_files(self.paths)):
+            with self.assertRaises(ValueError):
+                action()
+            self.assertEqual(self.paths.plist.read_bytes(), original)
+            self.assertEqual(binary.read_bytes(), before)
+
+    def test_matching_program_override_is_recognized(self):
+        self.stage()
+        plist = plistlib.loads(self.paths.plist.read_bytes())
+        plist["Program"] = str(self.paths.support / "bin/blink-statusd")
+        self.paths.plist.write_bytes(plistlib.dumps(plist))
+        self.module.preflight(self.paths)
+        self.module.uninstall_files(self.paths)
+        self.assertFalse(self.paths.support.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

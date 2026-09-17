@@ -105,6 +105,29 @@ class MergeTests:
         self.run_merge(remove=True)
         self.assertFalse(self.config.exists())
 
+    def test_only_exact_installed_python_command_is_owned(self):
+        installed = shlex.quote(str(self.adapter))
+        keep = [{"type": "command", "command": command} for command in (
+            "echo " + installed,
+            f"echo /other/BlinkStatus/hooks/{self.adapter_name}",
+            f"/usr/bin/python3 /other/BlinkStatus/hooks/{self.adapter_name}",
+            "/usr/bin/python3 " + installed + " --unrelated-option",
+            "/usr/bin/python3 " + installed + " && echo user-work",
+            "env /usr/bin/python3 " + installed,
+        )]
+        original = {"setting": "keep", "hooks": {"Stop": [{"matcher": "*", "hooks": keep + [
+            {"type": "command", "command": "/usr/bin/python3 " + installed}]}]}}
+        for remove in (False, True):
+            with self.subTest(remove=remove):
+                self.config.write_text(json.dumps(original))
+                self.run_merge(remove=remove)
+                result = json.loads(self.config.read_text())
+                self.assertEqual(result["setting"], "keep")
+                self.assertEqual(result["hooks"]["Stop"][0], {"matcher": "*", "hooks": keep})
+                if remove:
+                    self.assertEqual(result, {"setting": "keep", "hooks": {"Stop": [
+                        {"matcher": "*", "hooks": keep}]}})
+
     def test_backup_preserves_original_bytes_and_permissions_are_private(self):
         original = b'{"theme":"dark"}\n'
         self.config.write_bytes(original)

@@ -60,13 +60,20 @@ def validate_owned_paths(paths):
     # deletion argument, $HOME override, or a recursive wildcard.
     for path in (paths.support, paths.plist, paths.logs):
         safe_path(path)
+    for filename in ("stdout.log", "stderr.log"):
+        log_file = safe_path(paths.logs / filename)
+        if log_file.exists() and not log_file.is_file():
+            raise ValueError(f"Refusing nonregular log file: {log_file}")
     if paths.support.exists():
         marker = safe_path(paths.support / ".installation.json")
         if not marker.is_file() or json.loads(marker.read_bytes()) != MANIFEST:
             raise ValueError(f"Refusing to replace/remove an unrecognized directory: {paths.support}")
     if paths.plist.exists():
         data = plistlib.loads(paths.plist.read_bytes())
-        if not isinstance(data, dict) or data.get("Label") != LABEL or data.get("ProgramArguments") != [str(paths.support / "bin/blink-statusd")]:
+        executable = str(paths.support / "bin/blink-statusd")
+        if (not isinstance(data, dict) or data.get("Label") != LABEL
+                or data.get("ProgramArguments") != [executable]
+                or ("Program" in data and data["Program"] != executable)):
             raise ValueError(f"Refusing to replace/remove an unrecognized LaunchAgent: {paths.plist}")
 
 

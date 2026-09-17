@@ -56,15 +56,14 @@ def load_config(path):
     return raw, data
 
 
-def owned(handler, adapter_name):
+def owned(handler, adapter):
     command = handler.get("command")
     if handler.get("type") != "command" or not isinstance(command, str):
         return False
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        return False
-    return any(token.endswith("/BlinkStatus/hooks/" + adapter_name) for token in tokens)
+    # Own only the exact command this installer emits. Token suffixes or even
+    # equivalent-looking shell words can be mentions, another installation,
+    # compound commands, or expansion syntax with different execution behavior.
+    return command == "/usr/bin/python3 " + shlex.quote(str(adapter))
 
 
 def merged_config(data, adapter, events, remove=False):
@@ -76,7 +75,7 @@ def merged_config(data, adapter, events, remove=False):
     for event, entries in list(hooks.items()):
         remaining = []
         for entry in entries:
-            handlers = [handler for handler in entry["hooks"] if not owned(handler, adapter.name)]
+            handlers = [handler for handler in entry["hooks"] if not owned(handler, adapter)]
             if handlers or not entry["hooks"]:
                 remaining.append(dict(entry, hooks=handlers))
         # Remove only event containers emptied by removal of this integration.
