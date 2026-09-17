@@ -4,7 +4,7 @@ import XCTest
 final class BlinkControllerTests: XCTestCase {
     func testOffRendersBothLEDsBlackOnResolvedDevice() async {
         let runner = RecordingRunner(listOutput: deviceList)
-        let controller = BlinkController(runner: runner)
+        let controller = BlinkController(profile: .openAI, runner: runner)
 
         await controller.render(StatusSnapshot(applicationOpen: false, state: nil))
 
@@ -18,7 +18,7 @@ final class BlinkControllerTests: XCTestCase {
 
     func testReadyRendersWhiteAndGreenOnResolvedDevice() async {
         let runner = RecordingRunner(listOutput: deviceList)
-        let controller = BlinkController(runner: runner)
+        let controller = BlinkController(profile: .openAI, runner: runner)
 
         await controller.render(snapshot(for: .ready))
 
@@ -32,7 +32,7 @@ final class BlinkControllerTests: XCTestCase {
 
     func testWorkingRendersWhiteAndAmberOnResolvedDevice() async {
         let runner = RecordingRunner(listOutput: deviceList)
-        let controller = BlinkController(runner: runner)
+        let controller = BlinkController(profile: .openAI, runner: runner)
 
         await controller.render(snapshot(for: .working))
 
@@ -46,7 +46,7 @@ final class BlinkControllerTests: XCTestCase {
 
     func testAttentionRendersWhiteAndRedOnResolvedDevice() async {
         let runner = RecordingRunner(listOutput: deviceList)
-        let controller = BlinkController(runner: runner)
+        let controller = BlinkController(profile: .openAI, runner: runner)
 
         await controller.render(snapshot(for: .attention))
 
@@ -60,7 +60,7 @@ final class BlinkControllerTests: XCTestCase {
 
     func testMissingTargetSerialSendsNoColorCommands() async {
         let runner = RecordingRunner(listOutput: "blink(1) list:\nid:1 - serialnum:OTHER (mk2) fw version:204")
-        let controller = BlinkController(runner: runner)
+        let controller = BlinkController(profile: .openAI, runner: runner)
 
         await controller.render(snapshot(for: .ready))
 
@@ -70,7 +70,7 @@ final class BlinkControllerTests: XCTestCase {
 
     func testSerialWithTargetPrefixSendsNoColorCommands() async {
         let runner = RecordingRunner(listOutput: "blink(1) list:\nid:1 - serialnum:2000A1590 (mk2) fw version:204")
-        let controller = BlinkController(runner: runner)
+        let controller = BlinkController(profile: .openAI, runner: runner)
 
         await controller.render(snapshot(for: .ready))
 
@@ -80,7 +80,7 @@ final class BlinkControllerTests: XCTestCase {
 
     func testRenderingUnchangedSnapshotTwiceDoesNotRunAnyAdditionalCommands() async {
         let runner = RecordingRunner(listOutput: deviceList)
-        let controller = BlinkController(runner: runner)
+        let controller = BlinkController(profile: .openAI, runner: runner)
         let snapshot = snapshot(for: .working)
 
         await controller.render(snapshot)
@@ -93,7 +93,7 @@ final class BlinkControllerTests: XCTestCase {
 
     func testConcurrentIdenticalRendersDoNotDuplicateCommandsWhileRunnerIsSuspended() async {
         let runner = SuspendingRunner(listOutput: deviceList)
-        let controller = BlinkController(runner: runner)
+        let controller = BlinkController(profile: .openAI, runner: runner)
         let snapshot = snapshot(for: .working)
 
         let firstRender = Task { await controller.render(snapshot) }
@@ -120,7 +120,7 @@ final class BlinkControllerTests: XCTestCase {
 
     func testRunnerErrorIsSwallowedAndRecordedWithoutUnderlyingErrorText() async {
         let runner = RecordingRunner(error: TestError.secret("serial 2000A159 must not escape"))
-        let controller = BlinkController(runner: runner)
+        let controller = BlinkController(profile: .openAI, runner: runner)
 
         await controller.render(snapshot(for: .ready))
 
@@ -136,7 +136,7 @@ final class BlinkControllerTests: XCTestCase {
             listOutput: deviceList,
             plannedResults: [.success(CommandResult(exitCode: 1, stdout: "", stderr: "unavailable"))]
         )
-        let controller = BlinkController(runner: runner)
+        let controller = BlinkController(profile: .openAI, runner: runner)
         let snapshot = snapshot(for: .ready)
 
         await controller.render(snapshot)
@@ -152,12 +152,52 @@ final class BlinkControllerTests: XCTestCase {
         ])
     }
 
+    func testClaudeControllerSelectsClaudeDeviceAndUsesOrangePresenceColor() async {
+        let runner = RecordingRunner(listOutput: deviceList)
+        let controller = BlinkController(profile: .claude, runner: runner)
+
+        await controller.render(snapshot(for: .ready))
+
+        let invocations = await runner.invocations()
+        XCTAssertEqual(invocations, [
+            CommandInvocation(arguments: ["--list"]),
+            CommandInvocation(arguments: ["--id", "1", "--led", "1", "--rgb", "FF8000", "-m", "120"]),
+            CommandInvocation(arguments: ["--id", "1", "--led", "2", "--rgb", "00FF00", "-m", "120"]),
+        ])
+    }
+
+    func testControllersDiscoverAndSuppressDuplicatesIndependently() async {
+        let runner = RecordingRunner(listOutput: deviceList)
+        let openAIController = BlinkController(profile: .openAI, runner: runner)
+        let claudeController = BlinkController(profile: .claude, runner: runner)
+        let snapshot = snapshot(for: .ready)
+
+        await openAIController.render(snapshot)
+        await claudeController.render(snapshot)
+        await openAIController.render(snapshot)
+        await claudeController.render(snapshot)
+
+        let invocations = await runner.invocations()
+        XCTAssertEqual(invocations, [
+            CommandInvocation(arguments: ["--list"]),
+            CommandInvocation(arguments: ["--id", "0", "--led", "1", "--rgb", "FFFFFF", "-m", "120"]),
+            CommandInvocation(arguments: ["--id", "0", "--led", "2", "--rgb", "00FF00", "-m", "120"]),
+            CommandInvocation(arguments: ["--list"]),
+            CommandInvocation(arguments: ["--id", "1", "--led", "1", "--rgb", "FF8000", "-m", "120"]),
+            CommandInvocation(arguments: ["--id", "1", "--led", "2", "--rgb", "00FF00", "-m", "120"]),
+        ])
+    }
+
     private func snapshot(for state: ActivityState) -> StatusSnapshot {
         StatusSnapshot(applicationOpen: true, state: state)
     }
 }
 
-private let deviceList = "blink(1) list:\nid:0 - serialnum:2000A159 (mk2) fw version:204"
+private let deviceList = """
+blink(1) list:
+id:0 - serialnum:2000A159 (mk2) fw version:204
+id:1 - serialnum:2000A15D (mk2) fw version:204
+"""
 
 private struct CommandInvocation: Equatable, Sendable {
     let executable: String

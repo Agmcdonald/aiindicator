@@ -5,13 +5,15 @@ public actor BlinkController {
 
     public private(set) var diagnostics = [String]()
 
+    private let profile: StatusProfile
     private let runner: any CommandRunning
     private var deviceID: Int?
     private var lastRendered: LEDPair?
     private var isRendering = false
     private var pendingSnapshot: StatusSnapshot?
 
-    public init(runner: any CommandRunning = CommandRunner()) {
+    public init(profile: StatusProfile, runner: any CommandRunning = CommandRunner()) {
+        self.profile = profile
         self.runner = runner
     }
 
@@ -22,7 +24,7 @@ public actor BlinkController {
 
         while let nextSnapshot = pendingSnapshot {
             pendingSnapshot = nil
-            await renderTransaction(LEDPair(snapshot: nextSnapshot))
+            await renderTransaction(LEDPair(snapshot: nextSnapshot, presenceColor: profile.presenceColor))
         }
 
         isRendering = false
@@ -54,7 +56,7 @@ public actor BlinkController {
                 return nil
             }
 
-            guard let discoveredDeviceID = Self.deviceID(in: result.stdout) else {
+            guard let discoveredDeviceID = Self.deviceID(in: result.stdout, serialNumber: profile.serialNumber) else {
                 return nil
             }
 
@@ -84,10 +86,11 @@ public actor BlinkController {
         diagnostics.append("blink1-tool command failed")
     }
 
-    private static func deviceID(in listOutput: String) -> Int? {
+    private static func deviceID(in listOutput: String, serialNumber: String) -> Int? {
+        let serialToken = "serialnum:\(serialNumber)"
         for line in listOutput.split(whereSeparator: \.isNewline) {
             let fields = line.split(whereSeparator: { $0.isWhitespace || $0 == "-" || $0 == "(" || $0 == ")" })
-            guard fields.contains("serialnum:2000A159") else { continue }
+            guard fields.contains(where: { $0 == serialToken }) else { continue }
             guard let idRange = line.range(of: "id:") else { continue }
             let digits = line[idRange.upperBound...].prefix(while: \.isNumber)
             if let id = Int(digits) {
@@ -102,14 +105,14 @@ private struct LEDPair: Equatable {
     let first: String
     let second: String
 
-    init(snapshot: StatusSnapshot) {
+    init(snapshot: StatusSnapshot, presenceColor: String) {
         guard snapshot.applicationOpen else {
             first = "000000"
             second = "000000"
             return
         }
 
-        first = "FFFFFF"
+        first = presenceColor
         switch snapshot.state {
         case .ready, nil:
             second = "00FF00"
