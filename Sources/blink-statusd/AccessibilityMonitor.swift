@@ -4,7 +4,12 @@ import Foundation
 
 /// Only the derived activity state survives a sample. Conversation text is
 /// neither logged nor retained between polls.
-actor AccessibilityMonitor {
+protocol AccessibilityMonitoring: Sendable {
+    func start() async
+    func stop() async
+}
+
+actor AccessibilityMonitor: AccessibilityMonitoring {
     typealias Reader = @Sendable () -> AccessibilitySnapshot?
     private let read: Reader
     private let onChange: @Sendable (ActivityState?) async -> Void
@@ -64,11 +69,16 @@ actor AccessibilityMonitor {
     }
 }
 
-private enum AccessibilityTreeReader {
+enum AccessibilityTreeReader {
     static func snapshot(processID: pid_t) -> AccessibilitySnapshot? {
         guard AXIsProcessTrusted() else { return nil }
         let root = AXUIElementCreateApplication(processID)
-        AXUIElementSetMessagingTimeout(root, 0.05)
+        return snapshot(root: root)
+    }
+
+    static func snapshot(root: AXUIElement,
+                         setTimeout: (AXUIElement, Float) -> AXError = AXUIElementSetMessagingTimeout,
+                         readAttributes: (AXUIElement, CFArray) -> [Any]? = nativeAttributes) -> AccessibilitySnapshot? {
         let attributes = [kAXRoleAttribute, kAXTitleAttribute, kAXDescriptionAttribute,
                           kAXValueAttribute, kAXEnabledAttribute, kAXChildrenAttribute,
                           kAXRoleDescriptionAttribute] as CFArray
@@ -84,9 +94,10 @@ private enum AccessibilityTreeReader {
         while let (element, depth, inheritedAssistant) = pending.popLast(),
               visited < 1_500, ProcessInfo.processInfo.systemUptime < deadline {
             visited += 1
-            var result: CFArray?
-            guard AXUIElementCopyMultipleAttributeValues(element, attributes, [], &result) == .success,
-                  let values = result as? [Any], values.count == 7 else { continue }
+            // Messaging timeout belongs to this AX object, not its process/tree.
+            // Skip an element if its bound cannot be configured safely.
+            guard setTimeout(element, 0.05) == .success else { continue }
+            guard let values = readAttributes(element, attributes), values.count == 7 else { continue }
             readRoot = true
             let role = values[0] as? String ?? ""
             let title = String((values[1] as? String ?? "").prefix(8_192))
@@ -121,5 +132,11 @@ private enum AccessibilityTreeReader {
         guard readRoot else { return nil }
         permissionLabels.append(String(assistantFragments.joined(separator: " ").prefix(32_768)))
         return AccessibilitySnapshot(labels: permissionLabels, buttons: buttons, promptEnabled: promptEnabled)
+    }
+
+    private static func nativeAttributes(_ element: AXUIElement, _ attributes: CFArray) -> [Any]? {
+        var result: CFArray?
+        guard AXUIElementCopyMultipleAttributeValues(element, attributes, [], &result) == .success else { return nil }
+        return result as? [Any]
     }
 }

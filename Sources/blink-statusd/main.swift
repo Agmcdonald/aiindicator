@@ -32,16 +32,25 @@ struct BlinkStatusDaemon {
 }
 
 @MainActor
-private final class DaemonRuntime {
-    private let daemon = Daemon.live()
+final class DaemonRuntime {
+    typealias MonitorFactory = (pid_t, @escaping @Sendable (ActivityState?) async -> Void) -> any AccessibilityMonitoring
+    private let daemon: Daemon
+    private let makeMonitor: MonitorFactory
     private var server: UnixSocketServer?
     private var applications: ApplicationMonitor?
-    private var accessibility: [String: AccessibilityMonitor] = [:]
-    private var lifecycle: Task<Void, Never>?
+    private var accessibility: [String: any AccessibilityMonitoring] = [:]
+    private var lifecycle: [String: Task<Void, Never>] = [:]
     private var maintenance: Task<Void, Never>?
     private var signals: [DispatchSourceSignal] = []
     private var finished: CheckedContinuation<Void, Never>?
     private var stopping = false
+
+    init(daemon: Daemon = .live(), makeMonitor: @escaping MonitorFactory = { pid, onChange in
+        AccessibilityMonitor(processID: pid, onChange: onChange)
+    }) {
+        self.daemon = daemon
+        self.makeMonitor = makeMonitor
+    }
 
     func start() throws {
         let daemon = daemon
@@ -65,17 +74,20 @@ private final class DaemonRuntime {
         }
     }
 
-    private func applicationChanged(_ change: ApplicationPresenceChange) {
-        // Preserve launch/termination order across awaits before starting samples.
-        let previous = lifecycle
-        lifecycle = Task { [weak self] in
+    func applicationChanged(_ change: ApplicationPresenceChange) {
+        guard !stopping else { return }
+        // Preserve launch/termination order for this application. Other apps
+        // can start and stop their sampling while its hardware render awaits.
+        let previous = lifecycle[change.applicationID]
+        lifecycle[change.applicationID] = Task { [weak self] in
             await previous?.value
             guard let self, !stopping else { return }
             if let old = accessibility.removeValue(forKey: change.applicationID) { await old.stop() }
             await daemon.applicationChanged(change.applicationID, open: change.processID != nil)
+            guard !stopping else { return }
             if let processID = change.processID {
                 let daemon = daemon
-                let monitor = AccessibilityMonitor(processID: processID) { state in
+                let monitor = makeMonitor(processID) { state in
                     await daemon.accessibilityChanged(change.applicationID, state: state)
                 }
                 accessibility[change.applicationID] = monitor
@@ -89,13 +101,15 @@ private final class DaemonRuntime {
         await withCheckedContinuation { finished = $0 }
     }
 
-    private func stop() async {
+    func stop() async {
         guard !stopping else { return }
         stopping = true
         applications?.stop()
         maintenance?.cancel()
         server?.stop()
-        await lifecycle?.value
+        let pendingLifecycle = Array(lifecycle.values)
+        lifecycle.removeAll()
+        for task in pendingLifecycle { await task.value }
         for monitor in accessibility.values { await monitor.stop() }
         accessibility.removeAll()
         await daemon.shutdown()
