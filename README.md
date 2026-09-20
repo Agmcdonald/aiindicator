@@ -9,6 +9,8 @@ Two independent blink(1) mk2 indicators for the signed-in macOS user:
 
 Attention outranks working, which outranks ready within each group. The devices are independent. Both LEDs turn off when that group's apps and leased command-line sessions are closed. Hook sessions expire after stale leases; abrupt terminal termination may leave the presence light on until its lease expires (up to 24 hours for ready/attention; two hours for working).
 
+The daemon accepts only expiring update leases and expiry-free clear events. Per-session events are applied in timestamp order, frames dated more than five minutes into the future are ignored, and state-specific lease maxima are enforced. A second daemon refuses to replace a live event socket; a stale socket left by an exited daemon is reclaimed on restart.
+
 ## Install
 
 Requires macOS 13+, a Swift 6.4 toolchain, `/usr/bin/python3`, and the previously installed `/opt/homebrew/bin/blink1-tool`. Connect both approved devices before installing. From the source checkout, run:
@@ -19,7 +21,7 @@ Requires macOS 13+, a Swift 6.4 toolchain, `/usr/bin/python3`, and the previousl
 
 Run as your normal account, without `sudo`. Installation builds the release helper in a temporary directory, checks both device serials, and installs to `~/Library/Application Support/BlinkStatus/`. It creates and starts the `com.andrewmcdonald.blink-status` user LaunchAgent. The helper starts again on login and restarts after an unsuccessful exit.
 
-The installer merges handlers into `~/.codex/hooks.json` and `~/.claude/settings.json`. Existing settings and unrelated hooks are preserved. Repeating a merge adds no duplicates. Every changed existing configuration gets a private timestamped backup next to the original, and its path is printed. Invalid JSON, duplicate object keys, malformed hook structures, and symbolic-link paths are refused. Symlink-based dotfile configurations must be handled explicitly before using this installer.
+The installer merges handlers into `~/.codex/hooks.json` and `~/.claude/settings.json`. Existing settings and unrelated hooks are preserved. Repeating a merge adds no duplicates. Every changed existing configuration gets a private timestamped backup next to the original, and its path is printed. The backup is written before the replacement attempt, so an update aborted because a concurrent editor changed the file can also leave a backup of the pre-attempt contents. Invalid JSON, duplicate object keys, malformed hook structures, and symbolic-link paths are refused. Symlink-based dotfile configurations must be handled explicitly before using this installer.
 
 Each adapter uses a two-second hook limit and exits successfully even when the daemon is unavailable. Hooks do not issue approval decisions. Codex events: UserPromptSubmit, PermissionRequest, PostToolUse, Stop, Interrupt, SessionEnd. Claude events: SessionStart, UserPromptSubmit, PostToolUse, PermissionRequest, Notification, Stop, SessionEnd. Restart existing CLI sessions after installing so they reload hook configuration.
 
