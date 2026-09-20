@@ -165,6 +165,38 @@ final class UnixSocketServerTests: XCTestCase {
         XCTAssertEqual(event.sourceID, "codex:session-123")
     }
 
+    func testServerReclaimsSocketLeftByExitedListener() async throws {
+        let root = try temporaryDirectory()
+        let socketPath = root.appendingPathComponent("events.sock").path
+        let stale = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        XCTAssertGreaterThanOrEqual(stale, 0)
+        var address = try socketAddress(for: socketPath)
+        let bound = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(stale, $0, socketAddressLength(for: socketPath))
+            }
+        }
+        XCTAssertEqual(bound, 0)
+        Darwin.close(stale)
+
+        let recorder = EventRecorder()
+        let server = UnixSocketServer(socketPath: socketPath) { event in
+            await recorder.record(event)
+        }
+        defer {
+            server.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+        try server.start()
+
+        let client = try connect(to: socketPath)
+        defer { Darwin.close(client) }
+        let line = Data((#"{"action":"update","sourceID":"codex:reconnected","applicationID":"com.openai.codex-cli","state":1,"timestamp":1700000000,"expiresAt":1700007200}"# + "\n").utf8)
+        try send(line, to: client)
+        let event = try await waitForEvent(from: recorder)
+        XCTAssertEqual(event.sourceID, "codex:reconnected")
+    }
+
     private func temporaryDirectory() throws -> URL {
         let directory = URL(fileURLWithPath: "/tmp")
             .appendingPathComponent("blink-status-tests-\(UUID().uuidString)", isDirectory: true)

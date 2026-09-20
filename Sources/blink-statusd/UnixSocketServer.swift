@@ -35,23 +35,32 @@ final class UnixSocketServer: @unchecked Sendable {
         }
 
         try createSocketDirectory()
-        try removeStaleSocketIfNeeded()
 
         let fileDescriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fileDescriptor >= 0 else {
             throw UnixSocketServerError.systemCallFailed("socket")
         }
 
+        var ownsSocketPath = false
         do {
             var address = try makeAddress()
-            let result = withUnsafePointer(to: &address) { pointer in
+            var result = withUnsafePointer(to: &address) { pointer in
                 pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                     Darwin.bind(fileDescriptor, $0, socketAddressLength())
+                }
+            }
+            if result != 0, errno == EADDRINUSE {
+                try removeStaleSocketIfNeeded()
+                result = withUnsafePointer(to: &address) { pointer in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        Darwin.bind(fileDescriptor, $0, socketAddressLength())
+                    }
                 }
             }
             guard result == 0 else {
                 throw UnixSocketServerError.systemCallFailed("bind")
             }
+            ownsSocketPath = true
 
             let permissionsResult = socketPath.withCString { Darwin.chmod($0, 0o600) }
             guard permissionsResult == 0 else {
@@ -63,7 +72,9 @@ final class UnixSocketServer: @unchecked Sendable {
             }
         } catch {
             Darwin.close(fileDescriptor)
-            socketPath.withCString { _ = Darwin.unlink($0) }
+            if ownsSocketPath {
+                socketPath.withCString { _ = Darwin.unlink($0) }
+            }
             throw error
         }
 
