@@ -70,6 +70,27 @@ final class ApplicationIntegrationTests: XCTestCase {
         await assertOutput(output, .claude, nil)
     }
 
+    func testOlderHookUpdateCannotOverwriteNewerState() async {
+        let output = RecordingOutput()
+        let daemon = makeDaemon(output)
+
+        await daemon.receive(hook("com.openai.codex-cli", "one", .attention, timestamp: 20, expiry: 100))
+        await daemon.receive(hook("com.openai.codex-cli", "one", .working, timestamp: 10, expiry: 100))
+
+        await assertOutput(output, .openai, .attention)
+    }
+
+    func testOlderHookUpdateCannotResurrectAfterNewerClear() async {
+        let output = RecordingOutput()
+        let daemon = makeDaemon(output)
+
+        await daemon.receive(hook("com.openai.codex-cli", "one", .working, timestamp: 10, expiry: 100))
+        await daemon.receive(hook("com.openai.codex-cli", "one", nil, timestamp: 20))
+        await daemon.receive(hook("com.openai.codex-cli", "one", .attention, timestamp: 15, expiry: 100))
+
+        await assertOutput(output, .openai, nil)
+    }
+
     func testMaintenanceRetriesFailedRendererAndShutdownTurnsBothOff() async {
         let output = RecordingOutput()
         await output.failNext()
@@ -102,9 +123,10 @@ final class ApplicationIntegrationTests: XCTestCase {
         Daemon(renderers: output.renderers, now: { Date(timeIntervalSince1970: 0) })
     }
 
-    private func hook(_ app: String, _ source: String, _ state: ActivityState?, expiry: Double? = nil) -> DaemonEvent {
+    private func hook(_ app: String, _ source: String, _ state: ActivityState?,
+                      timestamp: Double = 0, expiry: Double? = nil) -> DaemonEvent {
         DaemonEvent(action: state == nil ? .clear : .update, sourceID: source, applicationID: app,
-                    state: state, timestamp: Date(timeIntervalSince1970: 0),
+                    state: state, timestamp: Date(timeIntervalSince1970: timestamp),
                     expiresAt: expiry.map { Date(timeIntervalSince1970: $0) })
     }
 

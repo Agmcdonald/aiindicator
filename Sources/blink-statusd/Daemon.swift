@@ -79,6 +79,7 @@ private actor ProfileChannel {
     private let maintain: Daemon.Renderer
     private let now: @Sendable () -> Date
     private var openDesktopIDs = Set<String>()
+    private var latestHookTimestamps = [String: Date]()
     private var tail: Task<Void, Never>?
     private var stopped = false
 
@@ -120,6 +121,8 @@ private actor ProfileChannel {
             // Namespace caller-supplied source IDs so one application cannot clear
             // another application's session, even within the same profile.
             let source = "hook:\(event.applicationID):\(event.sourceID)"
+            guard latestHookTimestamps[source].map({ event.timestamp >= $0 }) ?? true else { return }
+            latestHookTimestamps[source] = event.timestamp
             if event.action == .clear {
                 await store.clear(sourceID: source)
             } else if let state = event.state {

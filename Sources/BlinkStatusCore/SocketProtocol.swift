@@ -56,12 +56,12 @@ public struct DaemonEvent: Codable, Sendable {
         }
 
         switch action {
-        case .update where state == nil:
-            throw SocketProtocolError.missingState
-        case .clear where state != nil:
-            throw SocketProtocolError.unexpectedState
-        default:
-            break
+        case .update:
+            guard state != nil else { throw SocketProtocolError.missingState }
+            guard expiresAt != nil else { throw SocketProtocolError.missingExpiry }
+        case .clear:
+            guard state == nil else { throw SocketProtocolError.unexpectedState }
+            guard expiresAt == nil else { throw SocketProtocolError.unexpectedExpiry }
         }
     }
 }
@@ -71,4 +71,6 @@ public enum SocketProtocolError: Error, Sendable {
     case missingIdentity
     case missingState
     case unexpectedState
+    case missingExpiry
+    case unexpectedExpiry
 }

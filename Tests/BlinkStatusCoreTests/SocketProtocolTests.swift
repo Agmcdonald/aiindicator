@@ -56,4 +56,24 @@ final class SocketProtocolTests: XCTestCase {
         XCTAssertEqual(event.timestamp, Date(timeIntervalSince1970: 1_700_000_000))
         XCTAssertEqual(event.expiresAt, Date(timeIntervalSince1970: 1_700_007_200))
     }
+
+    func testUpdateWithoutExpiryIsRejected() {
+        let line = Data((#"{"action":"update","sourceID":"codex:session-123","applicationID":"com.openai.codex-cli","state":1,"timestamp":100,"expiresAt":null}"# + "\n").utf8)
+
+        XCTAssertThrowsError(try DaemonEvent.decodeLine(line)) { error in
+            guard case SocketProtocolError.missingExpiry = error else {
+                return XCTFail("Expected missingExpiry, got \(error)")
+            }
+        }
+    }
+
+    func testClearWithExpiryIsRejected() {
+        let line = Data((#"{"action":"clear","sourceID":"codex:session-123","applicationID":"com.openai.codex-cli","state":null,"timestamp":100,"expiresAt":200}"# + "\n").utf8)
+
+        XCTAssertThrowsError(try DaemonEvent.decodeLine(line)) { error in
+            guard case SocketProtocolError.unexpectedExpiry = error else {
+                return XCTFail("Expected unexpectedExpiry, got \(error)")
+            }
+        }
+    }
 }
