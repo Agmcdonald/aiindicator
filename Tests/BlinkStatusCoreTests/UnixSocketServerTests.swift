@@ -133,6 +133,38 @@ final class UnixSocketServerTests: XCTestCase {
         XCTAssertEqual(eventCount, 0)
     }
 
+    func testSecondServerCannotReplaceLiveSocket() async throws {
+        let root = try temporaryDirectory()
+        let socketPath = root.appendingPathComponent("events.sock").path
+        let firstRecorder = EventRecorder()
+        let first = UnixSocketServer(socketPath: socketPath) { event in
+            await firstRecorder.record(event)
+        }
+        let second = UnixSocketServer(socketPath: socketPath) { _ in }
+        defer {
+            second.stop()
+            first.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+        try first.start()
+
+        XCTAssertThrowsError(try second.start()) { error in
+            guard case UnixSocketServerError.alreadyRunning = error else {
+                return XCTFail("Expected alreadyRunning, got \(error)")
+            }
+        }
+        // Stopping or destroying a server that never acquired this path must
+        // not unlink the first server's endpoint.
+        second.stop()
+
+        let client = try connect(to: socketPath)
+        defer { Darwin.close(client) }
+        let line = Data((#"{"action":"update","sourceID":"codex:session-123","applicationID":"com.openai.codex-cli","state":1,"timestamp":1700000000,"expiresAt":1700007200}"# + "\n").utf8)
+        try send(line, to: client)
+        let event = try await waitForEvent(from: firstRecorder)
+        XCTAssertEqual(event.sourceID, "codex:session-123")
+    }
+
     private func temporaryDirectory() throws -> URL {
         let directory = URL(fileURLWithPath: "/tmp")
             .appendingPathComponent("blink-status-tests-\(UUID().uuidString)", isDirectory: true)

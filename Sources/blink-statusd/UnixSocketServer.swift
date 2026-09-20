@@ -35,7 +35,7 @@ final class UnixSocketServer: @unchecked Sendable {
         }
 
         try createSocketDirectory()
-        socketPath.withCString { _ = Darwin.unlink($0) }
+        try removeStaleSocketIfNeeded()
 
         let fileDescriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fileDescriptor >= 0 else {
@@ -81,8 +81,8 @@ final class UnixSocketServer: @unchecked Sendable {
 
         if fileDescriptor >= 0 {
             Darwin.close(fileDescriptor)
+            socketPath.withCString { _ = Darwin.unlink($0) }
         }
-        socketPath.withCString { _ = Darwin.unlink($0) }
     }
 
     private func acceptConnections() {
@@ -128,6 +128,40 @@ final class UnixSocketServer: @unchecked Sendable {
         let result = directory.path.withCString { Darwin.chmod($0, 0o700) }
         guard result == 0 else {
             throw UnixSocketServerError.systemCallFailed("chmod")
+        }
+    }
+
+    private func removeStaleSocketIfNeeded() throws {
+        var metadata = stat()
+        let status = socketPath.withCString { Darwin.lstat($0, &metadata) }
+        if status != 0 {
+            guard errno == ENOENT else { throw UnixSocketServerError.systemCallFailed("lstat") }
+            return
+        }
+        guard metadata.st_mode & S_IFMT == S_IFSOCK else {
+            throw UnixSocketServerError.socketPathOccupied
+        }
+
+        let probe = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard probe >= 0 else { throw UnixSocketServerError.systemCallFailed("socket") }
+        defer { Darwin.close(probe) }
+        var address = try makeAddress()
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(probe, $0, socketAddressLength())
+            }
+        }
+        if connected == 0 {
+            throw UnixSocketServerError.alreadyRunning
+        }
+        let connectionError = errno
+        guard connectionError == ECONNREFUSED || connectionError == ENOENT else {
+            throw UnixSocketServerError.systemCallFailed("connect")
+        }
+        if connectionError == ECONNREFUSED {
+            guard socketPath.withCString({ Darwin.unlink($0) }) == 0 else {
+                throw UnixSocketServerError.systemCallFailed("unlink")
+            }
         }
     }
 
@@ -198,5 +232,6 @@ final class UnixSocketServer: @unchecked Sendable {
 enum UnixSocketServerError: Error {
     case alreadyRunning
     case pathTooLong
+    case socketPathOccupied
     case systemCallFailed(String)
 }
