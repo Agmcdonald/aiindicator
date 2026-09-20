@@ -9,7 +9,7 @@ Two independent blink(1) mk2 indicators for the signed-in macOS user:
 
 Attention outranks working, which outranks ready within each group. The devices are independent. Both LEDs turn off when that group's apps and leased command-line sessions are closed. Hook sessions expire after stale leases; abrupt terminal termination may leave the presence light on until its lease expires (up to 24 hours for ready/attention; two hours for working).
 
-The daemon accepts only expiring update leases and expiry-free clear events. Per-session events are applied in timestamp order, frames dated more than five minutes into the future are ignored, and state-specific lease maxima are enforced. A second daemon refuses to replace a live event socket; a stale socket left by an exited daemon is reclaimed on restart.
+The daemon accepts only expiring update leases and expiry-free clear events. Per-session events are applied in timestamp order, frames dated more than five minutes into the future are ignored, and state-specific lease maxima are enforced. A second daemon refuses to replace a live event socket; a stale socket left by an exited daemon is reclaimed on restart. Every thirty seconds the helper repaints each present device instead of trusting its last successful write, because a device unplugged and replugged between two passes never reports absent yet resets its LEDs to dark; such a device recovers within one pass.
 
 ## Install
 
@@ -27,7 +27,7 @@ Each adapter uses a two-second hook limit and exits successfully even when the d
 
 Grant `blink-statusd` access in System Settings → Privacy & Security → Accessibility when prompted. The installer invokes the installed helper's permission request. Code hooks work without Accessibility; desktop conversation status detection needs it. Desktop status depends on accessible UI labels and visible conversation state, so app UI changes can reduce its accuracy. No transcript text is stored in logs; lifecycle events stay on a local private socket.
 
-Installation writes files individually with atomic replacement. It is not one transaction across both apps, files, and launchd. If an operation fails, retain printed backup paths, correct the reported problem, and rerun. The helper may be stopped during a failed update. A failed uninstall preserves remaining files so it can be rerun. Logs are at `~/Library/Logs/BlinkStatus/`.
+Reinstalling over a running installation stops the previous helper and waits for launchd to deregister it before starting the new one. Installation writes files individually with atomic replacement. It is not one transaction across both apps, files, and launchd. If an operation fails, retain printed backup paths, correct the reported problem, and rerun. The helper may be stopped during a failed update. A failed uninstall preserves remaining files so it can be rerun. Logs are at `~/Library/Logs/BlinkStatus/`.
 
 ## Uninstall
 
@@ -37,7 +37,7 @@ The uninstaller is copied with its supporting utilities and works even after thi
 /bin/bash "$HOME/Library/Application Support/BlinkStatus/uninstall.sh"
 ```
 
-From the checkout, `/bin/bash Scripts/uninstall.sh` also works. It stops only this integration's user LaunchAgent, removes only BlinkStatus hook handlers, and deletes only the recognized BlinkStatus support directory and matching plist. Backups remain beside the app configurations, and diagnostic logs remain in the log directory. Homebrew, blink1-tool, unrelated hooks, and unrelated settings remain installed. Removed helper files can be recreated by running the installer; configuration changes can be recovered from the printed backups. Uninstall refuses an unrecognized support directory or plist instead of deleting it.
+From the checkout, `/bin/bash Scripts/uninstall.sh` also works. It stops only this integration's user LaunchAgent, removes only BlinkStatus hook handlers, and deletes only the recognized BlinkStatus support directory and matching plist. Backups remain beside the app configurations, and diagnostic logs remain in the log directory. Homebrew, blink1-tool, unrelated hooks, and unrelated settings remain installed. Removed helper files can be recreated by running the installer; configuration changes can be recovered from the printed backups. Uninstall refuses an unrecognized support directory or plist instead of deleting it. Removing handlers can leave an empty `hooks` container in a configuration the installer created or edited, including a `~/.codex/hooks.json` that did not exist beforehand. These remain on purpose: an empty container is inert, and deleting a file or key the account may since have adopted is riskier than leaving it. Remove them by hand if you want the original state exactly.
 
 ## Development verification
 
