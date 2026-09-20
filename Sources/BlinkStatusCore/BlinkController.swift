@@ -22,8 +22,10 @@ public actor BlinkController {
         await enqueue(snapshot, probe: false)
     }
 
-    /// Rechecks device presence without repainting a continuously present,
-    /// unchanged device. Observed absence invalidates the successful-render cache.
+    /// Rechecks device presence and repaints even when the pair is unchanged.
+    /// A device unplugged and replugged between two maintenance passes never
+    /// reports absent, yet its LEDs reset to dark, so a cached successful
+    /// render is not evidence that the hardware is still showing that pair.
     public func maintain(_ snapshot: StatusSnapshot) async {
         await enqueue(snapshot, probe: true)
     }
@@ -38,9 +40,15 @@ public actor BlinkController {
             pendingSnapshot = nil
             let shouldProbe = pendingProbe
             pendingProbe = false
-            if shouldProbe, await resolvedDeviceID() == nil {
+            if shouldProbe {
+                // Discard the cache on every maintenance pass: absence proves
+                // the device is gone, and presence cannot prove it was never
+                // power-cycled since the last successful render.
+                guard await resolvedDeviceID() != nil else {
+                    lastRendered = nil
+                    continue
+                }
                 lastRendered = nil
-                continue
             }
             await renderTransaction(LEDPair(snapshot: nextSnapshot, presenceColor: profile.presenceColor))
         }

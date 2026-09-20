@@ -206,7 +206,7 @@ final class BlinkControllerTests: XCTestCase {
         ])
     }
 
-    func testMaintenanceRepaintsUnchangedSnapshotOnceAfterObservedReconnect() async {
+    func testMaintenanceRepaintsAfterObservedReconnectAndOnEveryLaterPass() async {
         let runner = RecordingRunner(listOutput: deviceList, listOutputs: [deviceList, "blink(1) list:", deviceList])
         let controller = BlinkController(profile: .openAI, runner: runner)
         let desired = snapshot(for: .ready)
@@ -222,10 +222,34 @@ final class BlinkControllerTests: XCTestCase {
             CommandInvocation(arguments: ["--id", "0", "--led", "1", "--rgb", "FFFFFF", "-m", "120"]),
             CommandInvocation(arguments: ["--id", "0", "--led", "2", "--rgb", "00FF00", "-m", "120"]),
         ])
+        // Maintenance repaints again, because continuous presence cannot rule
+        // out an unobserved power cycle. An event-driven render immediately
+        // afterwards still deduplicates against the freshly repainted pair.
         await controller.maintain(desired)
+        let secondMaintenance = await runner.invocations().filter { $0.arguments.contains("--rgb") }
+        XCTAssertEqual(secondMaintenance.count, 6)
         await controller.render(desired)
-        let continuous = await runner.invocations().filter { $0.arguments.contains("--rgb") }
-        XCTAssertEqual(continuous, reconnected)
+        let afterEventRender = await runner.invocations().filter { $0.arguments.contains("--rgb") }
+        XCTAssertEqual(afterEventRender, secondMaintenance)
+    }
+
+    func testMaintenanceRepaintsWhenAReplugWasNeverObserved() async {
+        // Hardware that is unplugged and replugged between two maintenance
+        // ticks never reports absent, but it resets its LEDs to dark. The
+        // render cache cannot distinguish that from a continuously lit
+        // device, so maintenance must repaint rather than trust the cache.
+        let runner = RecordingRunner(listOutput: deviceList)
+        let controller = BlinkController(profile: .openAI, runner: runner)
+        let desired = snapshot(for: .ready)
+
+        await controller.render(desired)
+        let afterRender = await runner.invocations().filter { $0.arguments.contains("--rgb") }
+        XCTAssertEqual(afterRender.count, 2)
+
+        await controller.maintain(desired)
+
+        let afterMaintenance = await runner.invocations().filter { $0.arguments.contains("--rgb") }
+        XCTAssertEqual(afterMaintenance.count, 4, "maintenance must repaint an apparently unchanged device")
     }
 
     private func snapshot(for state: ActivityState) -> StatusSnapshot {
