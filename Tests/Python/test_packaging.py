@@ -143,11 +143,16 @@ class PackagingTests(unittest.TestCase):
         # A truncated XML LaunchAgent must be refused like any other
         # unrecognized plist, not raise an unhandled parser error past main().
         self.paths.plist.parent.mkdir(parents=True)
-        corrupt = b'<?xml version="1.0"?><plist version="1.0"><dict><key>Label'
-        self.paths.plist.write_bytes(corrupt)
-        with self.assertRaises(ValueError):
-            self.module.uninstall_files(self.paths)
-        self.assertEqual(self.paths.plist.read_bytes(), corrupt)
+        # Truncated XML reaches plistlib as an expat parser error; the other
+        # two reach it as InvalidFileException. All are unrecognized plists.
+        for corrupt in (b'<?xml version="1.0"?><plist version="1.0"><dict><key>Label',
+                        b"this is not a plist at all",
+                        b"bplist00\xff\xff\xff\xff"):
+            with self.subTest(corrupt=corrupt):
+                self.paths.plist.write_bytes(corrupt)
+                with self.assertRaises(ValueError):
+                    self.module.uninstall_files(self.paths)
+                self.assertEqual(self.paths.plist.read_bytes(), corrupt)
 
     def test_uninstall_reports_corrupt_plist_without_traceback(self):
         self.paths.plist.parent.mkdir(parents=True)

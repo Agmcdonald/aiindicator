@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from xml.parsers.expat import ExpatError
 
 from hook_config import CLAUDE_EVENTS, CODEX_EVENTS, atomic_write, load_config, safe_path, update_config
 
@@ -71,10 +72,12 @@ def validate_owned_paths(paths):
     if paths.plist.exists():
         try:
             data = plistlib.loads(paths.plist.read_bytes())
-        except Exception as error:
-            # plistlib raises the XML parser's own error for malformed input,
-            # which is neither ValueError nor OSError. An unreadable plist is
-            # unrecognized: refuse it rather than escaping as a traceback.
+        except ExpatError as error:
+            # plistlib reports malformed XML through the parser's own error,
+            # which is neither ValueError nor OSError and so escaped main() as
+            # a traceback. An unparsable plist is unrecognized: refuse it.
+            # plistlib.InvalidFileException is already a ValueError and needs
+            # no translation; other exceptions stay unmasked.
             raise ValueError(f"Refusing an unreadable LaunchAgent: {paths.plist}: {error}") from error
         executable = str(paths.support / "bin/blink-statusd")
         if (not isinstance(data, dict) or data.get("Label") != LABEL
