@@ -69,7 +69,13 @@ def validate_owned_paths(paths):
         if not marker.is_file() or json.loads(marker.read_bytes()) != MANIFEST:
             raise ValueError(f"Refusing to replace/remove an unrecognized directory: {paths.support}")
     if paths.plist.exists():
-        data = plistlib.loads(paths.plist.read_bytes())
+        try:
+            data = plistlib.loads(paths.plist.read_bytes())
+        except Exception as error:
+            # plistlib raises the XML parser's own error for malformed input,
+            # which is neither ValueError nor OSError. An unreadable plist is
+            # unrecognized: refuse it rather than escaping as a traceback.
+            raise ValueError(f"Refusing an unreadable LaunchAgent: {paths.plist}: {error}") from error
         executable = str(paths.support / "bin/blink-statusd")
         if (not isinstance(data, dict) or data.get("Label") != LABEL
                 or data.get("ProgramArguments") != [executable]

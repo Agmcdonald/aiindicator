@@ -1,4 +1,4 @@
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import os
@@ -114,6 +114,31 @@ class PackagingTests(unittest.TestCase):
         self.paths.plist.write_bytes(plistlib.dumps([]))
         with self.assertRaises(ValueError):
             self.module.uninstall_files(self.paths)
+        self.assertTrue(self.paths.plist.exists())
+
+    def test_corrupt_plist_is_refused_as_valueerror_before_removal(self):
+        # A truncated XML LaunchAgent must be refused like any other
+        # unrecognized plist, not raise an unhandled parser error past main().
+        self.paths.plist.parent.mkdir(parents=True)
+        corrupt = b'<?xml version="1.0"?><plist version="1.0"><dict><key>Label'
+        self.paths.plist.write_bytes(corrupt)
+        with self.assertRaises(ValueError):
+            self.module.uninstall_files(self.paths)
+        self.assertEqual(self.paths.plist.read_bytes(), corrupt)
+
+    def test_uninstall_reports_corrupt_plist_without_traceback(self):
+        self.paths.plist.parent.mkdir(parents=True)
+        self.paths.plist.write_bytes(b'<?xml version="1.0"?><plist version="1.0"><dict><key>Label')
+        errors = io.StringIO()
+        argv = ["blink_install.py", "uninstall"]
+        with patch.object(sys, "argv", argv), patch.object(self.module.pwd, "getpwuid") as account, \
+                patch.object(self.module.sys, "platform", "darwin"), \
+                patch.object(self.module.os, "getuid", return_value=501), \
+                redirect_stderr(errors):
+            account.return_value = type("Account", (), {"pw_dir": str(self.home)})()
+            status = self.module.main()
+        self.assertEqual(status, 1)
+        self.assertIn("uninstall stopped", errors.getvalue())
         self.assertTrue(self.paths.plist.exists())
 
     def test_log_leaf_symlinks_and_nonregular_files_are_refused_before_mutation(self):
