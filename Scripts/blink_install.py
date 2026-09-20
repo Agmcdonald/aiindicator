@@ -139,7 +139,14 @@ def uninstall_files(paths):
                 entry.unlink()
         if marker.exists():
             marker.unlink()
-        paths.support.rmdir()
+        try:
+            paths.support.rmdir()
+        except OSError:
+            # The marker is gone but the directory survives. Restore the
+            # validated manifest so a rerun still recognizes the remainder
+            # instead of refusing it.
+            atomic_write(marker, json.dumps(MANIFEST).encode())
+            raise
 
 
 def run(arguments, **kwargs):

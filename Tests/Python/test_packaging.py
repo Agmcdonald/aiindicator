@@ -139,6 +139,28 @@ class PackagingTests(unittest.TestCase):
         self.module.uninstall_files(self.paths)
         self.assertFalse(self.paths.support.exists())
 
+    def test_uninstall_failing_final_rmdir_can_be_rerun(self):
+        # The marker is unlinked last, but the directory removal that follows
+        # can still fail. The remainder must stay recognizable for a rerun.
+        self.stage()
+        real_rmdir = os.rmdir
+
+        def fail_on_support(path, *args, **kwargs):
+            if Path(str(path)) == self.paths.support:
+                raise OSError(66, "Directory not empty", str(path))
+            return real_rmdir(path, *args, **kwargs)
+
+        with patch.object(self.module.os, "rmdir", fail_on_support):
+            with self.assertRaises(OSError):
+                self.module.uninstall_files(self.paths)
+        self.assertTrue(self.paths.support.exists())
+        marker = self.paths.support / ".installation.json"
+        self.assertTrue(marker.is_file(), "marker must be restored for a rerun")
+        self.assertEqual(json.loads(marker.read_bytes()), self.module.MANIFEST)
+        # The rerun must recognize the remainder and finish the job.
+        self.module.uninstall_files(self.paths)
+        self.assertFalse(self.paths.support.exists())
+
     def test_corrupt_plist_is_refused_as_valueerror_before_removal(self):
         # A truncated XML LaunchAgent must be refused like any other
         # unrecognized plist, not raise an unhandled parser error past main().
