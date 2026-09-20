@@ -1,5 +1,7 @@
 # BlinkStatus
 
+<img src="Resources/AIIndicator-icon.png" alt="BlinkStatus icon" width="160">
+
 Two independent blink(1) mk2 indicators for the signed-in macOS user:
 
 | Device serial | Applications | LED 1 while open | LED 2 |
