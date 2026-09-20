@@ -97,7 +97,7 @@ def preflight(paths):
 def stage(source, executable, paths):
     validate_owned_paths(paths)
     for directory in (paths.support, paths.support / "bin", paths.support / "hooks",
-                      paths.support / "manage", paths.logs):
+                      paths.support / "manage", paths.support / "Resources", paths.logs):
         private_directory(directory)
     safe_path(paths.plist.parent).mkdir(mode=0o700, parents=True, exist_ok=True)
     # Write the marker first so interruption leaves a recognizable partial install.
@@ -109,6 +109,9 @@ def stage(source, executable, paths):
         atomic_write(paths.support / "manage" / name, (source / "Scripts" / name).read_bytes())
     atomic_write(paths.support / "uninstall.sh", (source / "Scripts/uninstall.sh").read_bytes(), 0o700)
     atomic_write(paths.support / "README.md", (source / "README.md").read_bytes())
+    # Ship the icon the installed README references so it does not dangle.
+    atomic_write(paths.support / "Resources/AIIndicator-icon.png",
+                 (source / "Resources/AIIndicator-icon.png").read_bytes())
     plist = plistlib.loads((source / "Resources" / (LABEL + ".plist")).read_bytes())
     plist["ProgramArguments"] = [str(paths.support / "bin/blink-statusd")]
     plist["StandardOutPath"] = str(paths.logs / "stdout.log")

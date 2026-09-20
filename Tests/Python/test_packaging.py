@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -194,6 +195,20 @@ class PackagingTests(unittest.TestCase):
             with self.assertRaises(ValueError) as caught:
                 self.module.bootout_if_loaded(self.paths, attempts=3, delay=0)
         self.assertIn("Timed out", str(caught.exception))
+
+    def test_installed_readme_images_all_resolve(self):
+        # The installed README is documentation the user can open; every image
+        # it references must exist beside it rather than dangling.
+        self.stage()
+        readme = (self.paths.support / "README.md").read_text()
+        references = re.findall(r'<img[^>]*src="([^"]+)"', readme)
+        self.assertTrue(references, "README should reference the project icon")
+        for reference in references:
+            with self.subTest(reference=reference):
+                self.assertFalse(reference.startswith(("http://", "https://", "/")),
+                                 "installed docs should not depend on a network or absolute path")
+                self.assertTrue((self.paths.support / reference).is_file(),
+                                f"installed README references missing {reference}")
 
     def test_corrupt_plist_is_refused_as_valueerror_before_removal(self):
         # A truncated XML LaunchAgent must be refused like any other
