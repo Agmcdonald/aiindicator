@@ -66,6 +66,9 @@ actor Daemon {
 }
 
 private actor ProfileChannel {
+    private static let maximumClockSkew: TimeInterval = 5 * 60
+    private static let hookTimestampRetention: TimeInterval = 24 * 60 * 60
+
     enum Change: Sendable {
         case application(String, Bool)
         case accessibility(String, ActivityState?)
@@ -121,6 +124,8 @@ private actor ProfileChannel {
             // Namespace caller-supplied source IDs so one application cannot clear
             // another application's session, even within the same profile.
             let source = "hook:\(event.applicationID):\(event.sourceID)"
+            pruneHookTimestamps(now: timestamp)
+            guard event.timestamp <= timestamp.addingTimeInterval(Self.maximumClockSkew) else { return }
             guard latestHookTimestamps[source].map({ event.timestamp >= $0 }) ?? true else { return }
             latestHookTimestamps[source] = event.timestamp
             if event.action == .clear {
@@ -130,6 +135,7 @@ private actor ProfileChannel {
                     state: state, timestamp: event.timestamp, expiresAt: event.expiresAt))
             } else { return }
         case .refresh:
+            pruneHookTimestamps(now: timestamp)
             await maintain(await store.snapshot(now: timestamp))
             return
         case .shutdown:
@@ -138,5 +144,10 @@ private actor ProfileChannel {
             return
         }
         await render(await store.snapshot(now: timestamp))
+    }
+
+    private func pruneHookTimestamps(now: Date) {
+        let cutoff = now.addingTimeInterval(-Self.hookTimestampRetention)
+        latestHookTimestamps = latestHookTimestamps.filter { $0.value >= cutoff }
     }
 }

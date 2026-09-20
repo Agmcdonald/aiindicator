@@ -91,6 +91,19 @@ final class ApplicationIntegrationTests: XCTestCase {
         await assertOutput(output, .openai, nil)
     }
 
+    func testFarFutureHookTimestampCannotExtendOrOverrideCurrentState() async {
+        let output = RecordingOutput()
+        let clock = TestClock()
+        clock.now = Date(timeIntervalSince1970: 100)
+        let daemon = Daemon(renderers: output.renderers, now: { clock.now })
+        await daemon.applicationChanged("com.openai.codex", open: true)
+
+        await daemon.receive(hook("com.openai.codex-cli", "one", .attention,
+                                  timestamp: 401, expiry: 86_801))
+
+        await assertOutput(output, .openai, .ready)
+    }
+
     func testMaintenanceRetriesFailedRendererAndShutdownTurnsBothOff() async {
         let output = RecordingOutput()
         await output.failNext()
