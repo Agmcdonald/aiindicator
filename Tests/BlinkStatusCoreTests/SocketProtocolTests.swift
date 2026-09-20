@@ -76,4 +76,16 @@ final class SocketProtocolTests: XCTestCase {
             }
         }
     }
+
+    func testWorkingLeaseLongerThanTwoHoursIsRejected() {
+        let line = Data((#"{"action":"update","sourceID":"codex:session-123","applicationID":"com.openai.codex-cli","state":1,"timestamp":100,"expiresAt":7301}"# + "\n").utf8)
+
+        XCTAssertThrowsError(try DaemonEvent.decodeLine(line))
+    }
+
+    func testLeaseMustExpireAfterItsTimestamp() {
+        let line = Data((#"{"action":"update","sourceID":"codex:session-123","applicationID":"com.openai.codex-cli","state":2,"timestamp":100,"expiresAt":100}"# + "\n").utf8)
+
+        XCTAssertThrowsError(try DaemonEvent.decodeLine(line))
+    }
 }

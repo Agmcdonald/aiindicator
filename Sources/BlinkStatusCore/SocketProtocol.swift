@@ -57,8 +57,13 @@ public struct DaemonEvent: Codable, Sendable {
 
         switch action {
         case .update:
-            guard state != nil else { throw SocketProtocolError.missingState }
-            guard expiresAt != nil else { throw SocketProtocolError.missingExpiry }
+            guard let state else { throw SocketProtocolError.missingState }
+            guard let expiresAt else { throw SocketProtocolError.missingExpiry }
+            let maximumLease: TimeInterval = state == .working ? 2 * 60 * 60 : 24 * 60 * 60
+            let leaseDuration = expiresAt.timeIntervalSince(timestamp)
+            guard leaseDuration > 0, leaseDuration <= maximumLease else {
+                throw SocketProtocolError.invalidExpiry
+            }
         case .clear:
             guard state == nil else { throw SocketProtocolError.unexpectedState }
             guard expiresAt == nil else { throw SocketProtocolError.unexpectedExpiry }
@@ -73,4 +78,5 @@ public enum SocketProtocolError: Error, Sendable {
     case unexpectedState
     case missingExpiry
     case unexpectedExpiry
+    case invalidExpiry
 }
