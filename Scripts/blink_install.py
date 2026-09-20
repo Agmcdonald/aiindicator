@@ -122,8 +122,21 @@ def uninstall_files(paths):
     if paths.plist.exists():
         paths.plist.unlink()
     if paths.support.exists():
+        marker = paths.support / ".installation.json"
+        # Remove every other entry before the manifest marker. A removal that
+        # fails partway then leaves a still-recognized directory, so rerunning
+        # the uninstaller can finish it instead of refusing the remainder.
         # Top-level links are refused; rmtree does not follow internal links.
-        shutil.rmtree(paths.support)
+        for entry in sorted(paths.support.iterdir()):
+            if entry == marker:
+                continue
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+        if marker.exists():
+            marker.unlink()
+        paths.support.rmdir()
 
 
 def run(arguments, **kwargs):

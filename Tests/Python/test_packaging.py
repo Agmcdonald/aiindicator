@@ -116,6 +116,29 @@ class PackagingTests(unittest.TestCase):
             self.module.uninstall_files(self.paths)
         self.assertTrue(self.paths.plist.exists())
 
+    def test_uninstall_interrupted_midway_can_be_rerun(self):
+        # README: a failed uninstall preserves remaining files so it can be
+        # rerun. A rerun must not refuse the remainder because the manifest
+        # marker happened to be deleted before the failure.
+        self.stage()
+        leftover = self.paths.support / "bin/blink-statusd"
+        real_unlink = os.unlink
+
+        def fail_on_binary(path, *args, **kwargs):
+            # rmtree passes bare entry names alongside dir_fd, not full paths.
+            if os.path.basename(str(path)) == "blink-statusd":
+                raise PermissionError(13, "Operation not permitted", str(path))
+            return real_unlink(path, *args, **kwargs)
+
+        with patch.object(self.module.os, "unlink", fail_on_binary), \
+                patch.object(self.module.shutil.os, "unlink", fail_on_binary):
+            with self.assertRaises(OSError):
+                self.module.uninstall_files(self.paths)
+        self.assertTrue(leftover.exists(), "partial removal should leave the un-deletable file")
+        # The rerun must still recognize the remainder and finish the job.
+        self.module.uninstall_files(self.paths)
+        self.assertFalse(self.paths.support.exists())
+
     def test_corrupt_plist_is_refused_as_valueerror_before_removal(self):
         # A truncated XML LaunchAgent must be refused like any other
         # unrecognized plist, not raise an unhandled parser error past main().
