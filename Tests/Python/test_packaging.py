@@ -161,6 +161,40 @@ class PackagingTests(unittest.TestCase):
         self.module.uninstall_files(self.paths)
         self.assertFalse(self.paths.support.exists())
 
+    def test_bootout_waits_for_the_service_to_deregister(self):
+        # launchctl bootout returns before the service is fully gone, and a
+        # bootstrap issued during that window fails with an I/O error, so an
+        # upgrade over a running install must wait for deregistration.
+        calls = []
+        states = ["loaded", "loaded", "loaded", "gone"]
+
+        def fake_run(args, *rest, **kwargs):
+            calls.append(list(args))
+            if args[1] == "print":
+                state = states.pop(0) if states else "gone"
+                return subprocess.CompletedProcess(args, 0 if state == "loaded" else 1, b"", b"")
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+
+        with patch.object(self.module.subprocess, "run", fake_run), \
+                patch.object(self.module.time, "sleep", lambda _: None):
+            self.module.bootout_if_loaded(self.paths)
+
+        verbs = [call[1] for call in calls]
+        self.assertEqual(verbs[0], "print")
+        self.assertEqual(verbs[1], "bootout")
+        self.assertIn("print", verbs[2:], "must re-check that the service actually went away")
+        self.assertEqual(verbs[-1], "print")
+
+    def test_bootout_that_never_deregisters_is_reported_not_hung(self):
+        def fake_run(args, *rest, **kwargs):
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+
+        with patch.object(self.module.subprocess, "run", fake_run), \
+                patch.object(self.module.time, "sleep", lambda _: None):
+            with self.assertRaises(ValueError) as caught:
+                self.module.bootout_if_loaded(self.paths, attempts=3, delay=0)
+        self.assertIn("Timed out", str(caught.exception))
+
     def test_corrupt_plist_is_refused_as_valueerror_before_removal(self):
         # A truncated XML LaunchAgent must be refused like any other
         # unrecognized plist, not raise an unhandled parser error past main().

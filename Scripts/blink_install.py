@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from xml.parsers.expat import ExpatError
 
 from hook_config import CLAUDE_EVENTS, CODEX_EVENTS, atomic_write, load_config, safe_path, update_config
@@ -153,11 +154,23 @@ def run(arguments, **kwargs):
     return subprocess.run([str(argument) for argument in arguments], check=True, **kwargs)
 
 
-def bootout_if_loaded(paths):
+def service_is_loaded(service):
+    return subprocess.run(["/bin/launchctl", "print", service], capture_output=True).returncode == 0
+
+
+def bootout_if_loaded(paths, attempts=50, delay=0.1):
     service = f"gui/{os.getuid()}/{LABEL}"
-    present = subprocess.run(["/bin/launchctl", "print", service], capture_output=True)
-    if present.returncode == 0:
-        run(["/bin/launchctl", "bootout", service])
+    if not service_is_loaded(service):
+        return
+    run(["/bin/launchctl", "bootout", service])
+    # bootout returns before launchd finishes deregistering the job, and a
+    # bootstrap inside that window fails with an I/O error, so an upgrade over
+    # a running install must wait for the service to actually go away.
+    for _ in range(attempts):
+        if not service_is_loaded(service):
+            return
+        time.sleep(delay)
+    raise ValueError(f"Timed out waiting for {LABEL} to stop; rerun the installer")
 
 
 def install(source, paths):
