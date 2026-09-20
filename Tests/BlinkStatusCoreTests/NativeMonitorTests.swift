@@ -60,6 +60,32 @@ final class NativeMonitorTests: XCTestCase {
     }
 
     @MainActor
+    func testReplacingDesktopProcessClearsPreviousAccessibilityStateBeforeSampling() async {
+        let output = NativeRecordingOutput()
+        let firstStarted = expectation(description: "first process sampled")
+        let replacementStarted = expectation(description: "replacement process started")
+        let daemon = Daemon(renderers: [.openai: { await output.record($0) }])
+        let runtime = DaemonRuntime(daemon: daemon, makeMonitor: { pid, onChange in
+            if pid == 2 {
+                return CallbackMonitor(started: firstStarted) { await onChange(.working) }
+            }
+            return CallbackMonitor(started: replacementStarted) {}
+        })
+
+        runtime.applicationChanged(.init(applicationID: "com.openai.codex", processID: 2))
+        await fulfillment(of: [firstStarted], timeout: 1)
+        let firstState = await output.latest
+        XCTAssertEqual(firstState, StatusSnapshot(applicationOpen: true, state: .working))
+
+        runtime.applicationChanged(.init(applicationID: "com.openai.codex", processID: 3))
+        await fulfillment(of: [replacementStarted], timeout: 1)
+        let replacementState = await output.latest
+        XCTAssertEqual(replacementState, StatusSnapshot(applicationOpen: true, state: .ready))
+
+        await runtime.stop()
+    }
+
+    @MainActor
     func testApplicationScanFiltersUnknownAppsAndDetectsTermination() async {
         var running = [RunningApplication(bundleID: "unknown", processID: 1),
                        RunningApplication(bundleID: "com.openai.codex", processID: 2)]
@@ -117,6 +143,22 @@ private actor LifecycleMonitor: AccessibilityMonitoring {
     }
     func start() { started?.fulfill() }
     func stop() { stopped?.fulfill() }
+}
+
+private actor CallbackMonitor: AccessibilityMonitoring {
+    let started: XCTestExpectation
+    let onStart: @Sendable () async -> Void
+    init(started: XCTestExpectation, onStart: @escaping @Sendable () async -> Void) {
+        self.started = started
+        self.onStart = onStart
+    }
+    func start() async { await onStart(); started.fulfill() }
+    func stop() {}
+}
+
+private actor NativeRecordingOutput {
+    private(set) var latest: StatusSnapshot?
+    func record(_ snapshot: StatusSnapshot) { latest = snapshot }
 }
 
 private final class SampleInput: @unchecked Sendable {

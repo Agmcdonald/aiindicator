@@ -82,7 +82,12 @@ final class DaemonRuntime {
         lifecycle[change.applicationID] = Task { [weak self] in
             await previous?.value
             guard let self, !stopping else { return }
-            if let old = accessibility.removeValue(forKey: change.applicationID) { await old.stop() }
+            if let old = accessibility.removeValue(forKey: change.applicationID) {
+                await old.stop()
+                if change.processID != nil {
+                    await daemon.accessibilityChanged(change.applicationID, state: nil)
+                }
+            }
             await daemon.applicationChanged(change.applicationID, open: change.processID != nil)
             guard !stopping else { return }
             if let processID = change.processID {
